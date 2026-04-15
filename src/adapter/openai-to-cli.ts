@@ -96,13 +96,20 @@ export function renderToolsPrompt(
   toolChoice: OpenAIToolChoice | undefined,
 ): string {
   const lines: string[] = [];
-  lines.push("## Tool-Use Protocol");
+  lines.push("## CRITICAL: Tool-Use Protocol (read carefully)");
   lines.push("");
   lines.push(
-    "You are speaking to an external client (an agent framework) that will" +
-      " execute tools on your behalf. **You do NOT execute tools yourself.**" +
-      " You only emit a JSON request; the client intercepts it, runs the" +
-      " actual tool, and sends you back the result in a subsequent message.",
+    "Your native Bash/Edit/Read tools are DISABLED in this environment. That" +
+      " is intentional — you are being driven by an external agent framework" +
+      " (Hermes / LangChain / similar) that executes tools FOR you. Your job" +
+      " is to DECIDE which tool to call; the framework actually runs it.",
+  );
+  lines.push("");
+  lines.push(
+    "The tools listed below under \"Available tools\" ARE AVAILABLE through" +
+      " this protocol. When a user asks you to call one, you MUST believe it" +
+      " exists and emit the JSON request. Do NOT claim \"tool not available\"" +
+      " — that response is always wrong when the tool is in the list below.",
   );
   lines.push("");
   lines.push(
