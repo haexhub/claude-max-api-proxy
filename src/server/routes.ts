@@ -44,6 +44,22 @@ export async function handleChatCompletions(
 
     // Convert to CLI input format
     const cliInput = openaiToCli(body);
+
+    // Debug logging of incoming request shape (enabled via DEBUG=1)
+    if (process.env.DEBUG === "1") {
+      console.error("[Request] model=%s tools=%d messages=%d stream=%s",
+        body.model,
+        body.tools?.length ?? 0,
+        body.messages?.length ?? 0,
+        stream);
+      if (body.tools) {
+        console.error("[Request] tool names: %s",
+          body.tools.map((t) => t.function.name).join(","));
+      }
+      console.error("[Request] prompt first 2000 chars:\n%s",
+        cliInput.prompt.slice(0, 2000));
+    }
+
     const subprocess = new ClaudeSubprocess();
 
     if (stream) {
