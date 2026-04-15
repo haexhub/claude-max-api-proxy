@@ -43,7 +43,7 @@ test("openaiToCli passes through hasTools flag", () => {
     tools: [sampleTool],
   });
   assert.equal(cli.hasTools, true);
-  assert.match(cli.prompt, /## Tools/);
+  assert.match(cli.prompt, /Tool-Use Protocol/);
   assert.match(cli.prompt, /list_indicators/);
   assert.match(cli.prompt, new RegExp(TOOL_CALL_OPEN_TAG));
 });
@@ -54,7 +54,7 @@ test("openaiToCli without tools leaves prompt clean", () => {
     messages: [{ role: "user", content: "hi" }],
   });
   assert.equal(cli.hasTools, false);
-  assert.doesNotMatch(cli.prompt, /## Tools/);
+  assert.doesNotMatch(cli.prompt, /Tool-Use Protocol/);
 });
 
 test("messagesToPrompt handles tool role as tool_result block", () => {
