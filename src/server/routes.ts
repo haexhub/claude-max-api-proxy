@@ -11,6 +11,7 @@ import { openaiToCli } from "../adapter/openai-to-cli.js";
 import {
   cliResultToOpenai,
   createDoneChunk,
+  extractToolCalls,
 } from "../adapter/cli-to-openai.js";
 import type { OpenAIChatRequest } from "../types/openai.js";
 import type { ClaudeCliAssistant, ClaudeCliResult, ClaudeCliStreamEvent } from "../types/claude-cli.js";
@@ -97,6 +98,13 @@ async function handleStreamingResponse(
     let isFirst = true;
     let lastModel = "claude-sonnet-4";
     let isComplete = false;
+    // When tools were sent, we buffer the full content stream and only
+    // emit the final parsed result at end. Streaming tool_calls deltas
+    // piece-by-piece is ambiguous (we'd have to parse partial JSON); for
+    // now we defer emission until we have the complete block, which is
+    // what OpenAI-compatible clients handle cleanly.
+    const extractTools = cliInput.hasTools;
+    let bufferedText = "";
 
     // Handle actual client disconnect (response stream closed)
     res.on("close", () => {
@@ -110,24 +118,30 @@ async function handleStreamingResponse(
     // Handle streaming content deltas
     subprocess.on("content_delta", (event: ClaudeCliStreamEvent) => {
       const text = event.event.delta?.text || "";
-      if (text && !res.writableEnded) {
-        const chunk = {
-          id: `chatcmpl-${requestId}`,
-          object: "chat.completion.chunk",
-          created: Math.floor(Date.now() / 1000),
-          model: lastModel,
-          choices: [{
-            index: 0,
-            delta: {
-              role: isFirst ? "assistant" : undefined,
-              content: text,
-            },
-            finish_reason: null,
-          }],
-        };
-        res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-        isFirst = false;
+      if (!text || res.writableEnded) return;
+
+      if (extractTools) {
+        // Accumulate, flush at end. (See comment above.)
+        bufferedText += text;
+        return;
       }
+
+      const chunk = {
+        id: `chatcmpl-${requestId}`,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model: lastModel,
+        choices: [{
+          index: 0,
+          delta: {
+            role: isFirst ? "assistant" : undefined,
+            content: text,
+          },
+          finish_reason: null,
+        }],
+      };
+      res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+      isFirst = false;
     });
 
     // Handle final assistant message (for model name)
@@ -138,8 +152,41 @@ async function handleStreamingResponse(
     subprocess.on("result", (_result: ClaudeCliResult) => {
       isComplete = true;
       if (!res.writableEnded) {
+        // If we buffered content for tool extraction, flush now.
+        let finishReason: "stop" | "tool_calls" = "stop";
+        if (extractTools) {
+          const { text, toolCalls } = extractToolCalls(bufferedText);
+          finishReason = toolCalls.length > 0 ? "tool_calls" : "stop";
+          const chunk = {
+            id: `chatcmpl-${requestId}`,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: lastModel,
+            choices: [{
+              index: 0,
+              delta: {
+                role: isFirst ? "assistant" as const : undefined,
+                content: text || undefined,
+                tool_calls:
+                  toolCalls.length > 0
+                    ? toolCalls.map((c, idx) => ({
+                        index: idx,
+                        id: c.id,
+                        type: "function" as const,
+                        function: {
+                          name: c.function.name,
+                          arguments: c.function.arguments,
+                        },
+                      }))
+                    : undefined,
+              },
+              finish_reason: null,
+            }],
+          };
+          res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+        }
         // Send final done chunk with finish_reason
-        const doneChunk = createDoneChunk(requestId, lastModel);
+        const doneChunk = createDoneChunk(requestId, lastModel, finishReason);
         res.write(`data: ${JSON.stringify(doneChunk)}\n\n`);
         res.write("data: [DONE]\n\n");
         res.end();
@@ -216,7 +263,7 @@ async function handleNonStreamingResponse(
 
     subprocess.on("close", (code: number | null) => {
       if (finalResult) {
-        res.json(cliResultToOpenai(finalResult, requestId));
+        res.json(cliResultToOpenai(finalResult, requestId, cliInput.hasTools));
       } else if (!res.headersSent) {
         res.status(500).json({
           error: {
