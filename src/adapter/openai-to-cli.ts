@@ -96,11 +96,18 @@ export function renderToolsPrompt(
   toolChoice: OpenAIToolChoice | undefined,
 ): string {
   const lines: string[] = [];
-  lines.push("## Tools");
+  lines.push("## Tool-Use Protocol");
+  lines.push("");
   lines.push(
-    "You have access to the following tools. Call a tool ONLY by emitting" +
-      " a single fenced block exactly like this (no prose before or after" +
-      " the tags):",
+    "You are speaking to an external client (an agent framework) that will" +
+      " execute tools on your behalf. **You do NOT execute tools yourself.**" +
+      " You only emit a JSON request; the client intercepts it, runs the" +
+      " actual tool, and sends you back the result in a subsequent message.",
+  );
+  lines.push("");
+  lines.push(
+    "To REQUEST a tool invocation, emit exactly this block format — no" +
+      " prose around the tags, no markdown code fence, JUST the tags:",
   );
   lines.push("");
   lines.push(TOOL_CALL_OPEN_TAG);
@@ -111,10 +118,25 @@ export function renderToolsPrompt(
   lines.push(TOOL_CALL_CLOSE_TAG);
   lines.push("");
   lines.push(
-    "The `arguments` object MUST be valid JSON and MUST conform to the" +
-      " tool's parameters schema. Emit exactly one tool call per response.",
+    "Important rules:",
   );
-  lines.push("After you emit the block, stop. Wait for the tool result.");
+  lines.push(
+    "- The `arguments` object MUST be valid JSON matching the tool's" +
+      " parameters schema.",
+  );
+  lines.push("- Emit at most one tool call block per response.");
+  lines.push(
+    "- After emitting the block, STOP. Do not add any prose afterwards." +
+      " Wait for the client to call the tool and send back the result.",
+  );
+  lines.push(
+    "- Do NOT say things like \"I'll run X\" or \"let me call X\" — just" +
+      " emit the block. The emission IS the call.",
+  );
+  lines.push(
+    "- If NO tool fits the user's request, answer the user directly in" +
+      " plain text — do not invent tool names not listed below.",
+  );
   lines.push("");
   lines.push("### Available tools");
   for (const tool of tools) {
@@ -127,7 +149,7 @@ export function renderToolsPrompt(
     }
   }
   lines.push("");
-  lines.push("### When to call");
+  lines.push("### Tool-choice policy for THIS turn");
   lines.push(renderToolChoice(toolChoice));
   return lines.join("\n");
 }
